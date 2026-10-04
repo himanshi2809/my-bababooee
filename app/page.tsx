@@ -13,10 +13,19 @@ type Transaction = {
   notes: string | null;
 };
 
+type BalanceItem = {
+  id: number;
+  name: string;
+  type: "asset" | "liability";
+  amount: number;
+  notes: string | null;
+};
+
 export default function Home() {
   const supabase = createClient();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [balanceItems, setBalanceItems] = useState<BalanceItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [date, setDate] = useState(
@@ -28,6 +37,11 @@ export default function Home() {
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
 
+  const [balanceName, setBalanceName] = useState("");
+  const [balanceType, setBalanceType] = useState<"asset" | "liability">("asset");
+  const [balanceAmount, setBalanceAmount] = useState("");
+  const [balanceNotes, setBalanceNotes] = useState("");
+  
   async function loadTransactions() {
     setLoading(true);
 
@@ -47,8 +61,23 @@ export default function Home() {
     setLoading(false);
   }
 
+  async function loadBalanceItems() {
+  const { data, error } = await supabase
+    .from("balance_items")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    alert("Could not load assets and liabilities.");
+  } else {
+    setBalanceItems(data || []);
+  }
+}
+
   useEffect(() => {
     loadTransactions();
+    loadBalanceItems();
   }, []);
 
   async function addTransaction(e: React.FormEvent) {
@@ -81,6 +110,34 @@ export default function Home() {
     await loadTransactions();
   }
 
+  async function addBalanceItem(e: React.FormEvent) {
+  e.preventDefault();
+
+  if (!balanceName || !balanceAmount) {
+    alert("Please enter a name and amount.");
+    return;
+  }
+
+  const { error } = await supabase.from("balance_items").insert({
+    name: balanceName,
+    type: balanceType,
+    amount: Number(balanceAmount),
+    notes: balanceNotes || null,
+  });
+
+  if (error) {
+    console.error(error);
+    alert("Could not add item.");
+    return;
+  }
+
+  setBalanceName("");
+  setBalanceAmount("");
+  setBalanceNotes("");
+
+  await loadBalanceItems();
+  }
+
   async function deleteTransaction(id: number) {
     const confirmed = window.confirm(
       "Are you sure you want to delete this transaction?"
@@ -102,6 +159,27 @@ export default function Home() {
     await loadTransactions();
   }
 
+  async function deleteBalanceItem(id: number) {
+  const confirmed = window.confirm(
+    "Are you sure you want to delete this item?"
+  );
+
+  if (!confirmed) return;
+
+  const { error } = await supabase
+    .from("balance_items")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    console.error(error);
+    alert("Could not delete item.");
+    return;
+  }
+
+  await loadBalanceItems();
+  }
+
   const totalIncome = transactions
     .filter((t) => t.type === "income")
     .reduce((sum, t) => sum + Number(t.amount), 0);
@@ -111,134 +189,412 @@ export default function Home() {
     .reduce((sum, t) => sum + Number(t.amount), 0);
 
   const balance = totalIncome - totalExpenses;
+  const totalAssets = balanceItems
+    .filter((item) => item.type === "asset")
+    .reduce((sum, item) => sum + Number(item.amount), 0);
 
-  function money(value: number) {
-    return new Intl.NumberFormat("en-GB", {
-      style: "currency",
-      currency: "INR",
-    }).format(value);
+  const totalLiabilities = balanceItems
+    .filter((item) => item.type === "liability")
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+
+  const netWorth = totalAssets - totalLiabilities;
+
+  function money(value: number): string {
+  // Divides by 1,000 to match your original logic
+    const thousands = value / 1000;
+
+    return `₹${thousands.toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}k`;
   }
 
-  return (
-    <main className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="mx-auto max-w-6xl px-6 py-10">
 
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">My Ledger</h1>
-          <p className="mt-1 text-gray-500">
-            A simple record of your income and expenses.
+  return (
+  <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 text-slate-900">
+    <div className="mx-auto max-w-7xl px-6 py-10">
+
+      {/* Header */}
+
+      <div className="mb-10 flex items-end justify-between">
+        <div>
+          <div className="mb-2 inline-flex items-center rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700">
+            PERSONAL FINANCE
+          </div>
+
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900">
+            My Ledger
+          </h1>
+
+          <p className="mt-2 text-slate-500">
+            Your money, all in one place.
           </p>
         </div>
 
-        {/* Totals */}
+        <div className="hidden text-right sm:block">
+          <p className="text-sm text-slate-400">
+            Current balance
+          </p>
+          <p className="text-2xl font-bold text-indigo-600">
+            {money(balance)}
+          </p>
+        </div>
+      </div>
 
-        <div className="mb-8 grid gap-4 md:grid-cols-3">
 
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="text-sm text-gray-500">Total Income</p>
-            <p className="mt-2 text-3xl font-semibold">
-              {money(totalIncome)}
+      {/* Cash Flow */}
+
+      <div className="mb-3">
+        <h2 className="text-lg font-semibold text-slate-800">
+          Cash Flow
+        </h2>
+        <p className="text-sm text-slate-400">
+          Money coming in and going out
+        </p>
+      </div>
+
+      <div className="mb-10 grid gap-4 md:grid-cols-3">
+
+        {/* Income */}
+
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-emerald-700">
+              Total Income
             </p>
+
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-600 shadow-sm">
+              ↑
+            </div>
           </div>
 
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="text-sm text-gray-500">Total Expenses</p>
-            <p className="mt-2 text-3xl font-semibold">
-              {money(totalExpenses)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="text-sm text-gray-500">Balance</p>
-            <p className="mt-2 text-3xl font-semibold">
-              {money(balance)}
-            </p>
-          </div>
-
+          <p className="mt-4 text-3xl font-bold text-emerald-700">
+            {money(totalIncome)}
+          </p>
         </div>
 
-        {/* Add transaction */}
 
-        <div className="mb-8 rounded-2xl bg-white p-6 shadow-sm">
+        {/* Expenses */}
 
-          <h2 className="mb-5 text-xl font-semibold">
-            Add transaction
+        <div className="rounded-2xl border border-rose-100 bg-rose-50 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-rose-700">
+              Total Expenses
+            </p>
+
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-rose-600 shadow-sm">
+              ↓
+            </div>
+          </div>
+
+          <p className="mt-4 text-3xl font-bold text-rose-700">
+            {money(totalExpenses)}
+          </p>
+        </div>
+
+
+        {/* Net Cash Flow */}
+
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-indigo-700">
+              Net Cash Flow
+            </p>
+
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-indigo-600 shadow-sm">
+              =
+            </div>
+          </div>
+
+          <p className="mt-4 text-3xl font-bold text-indigo-700">
+            {money(balance)}
+          </p>
+        </div>
+
+      </div>
+
+
+      {/* Financial Position */}
+
+      <div className="mb-3">
+        <h2 className="text-lg font-semibold text-slate-800">
+          Financial Position
+        </h2>
+
+        <p className="text-sm text-slate-400">
+          What you own versus what you owe
+        </p>
+      </div>
+
+      <div className="mb-10 grid gap-4 md:grid-cols-3">
+
+        {/* Assets */}
+
+        <div className="rounded-2xl border border-sky-100 bg-sky-50 p-6 shadow-sm">
+          <p className="text-sm font-medium text-sky-700">
+            Assets
+          </p>
+
+          <p className="mt-3 text-3xl font-bold text-sky-700">
+            {money(totalAssets)}
+          </p>
+
+          <p className="mt-2 text-xs text-sky-600">
+            What you own
+          </p>
+        </div>
+
+
+        {/* Liabilities */}
+
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-6 shadow-sm">
+          <p className="text-sm font-medium text-amber-700">
+            Liabilities
+          </p>
+
+          <p className="mt-3 text-3xl font-bold text-amber-700">
+            {money(totalLiabilities)}
+          </p>
+
+          <p className="mt-2 text-xs text-amber-600">
+            What you owe
+          </p>
+        </div>
+
+
+        {/* Net Worth */}
+
+        <div className="rounded-2xl border border-violet-100 bg-violet-50 p-6 shadow-sm">
+          <p className="text-sm font-medium text-violet-700">
+            Net Worth
+          </p>
+
+          <p className="mt-3 text-3xl font-bold text-violet-700">
+            {money(netWorth)}
+          </p>
+
+          <p className="mt-2 text-xs text-violet-600">
+            Assets − Liabilities
+          </p>
+        </div>
+
+      </div>
+
+
+      {/* Add Transaction */}
+
+      <div className="mb-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-slate-800">
+            Add Transaction
           </h2>
 
+          <p className="mt-1 text-sm text-slate-400">
+            Record income or an expense
+          </p>
+        </div>
+
+        <form
+          onSubmit={addTransaction}
+          className="grid gap-4 md:grid-cols-6"
+        >
+
+          {/* Date */}
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Date
+            </label>
+
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+
+
+          {/* Description */}
+
+          <div className="md:col-span-2">
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Description
+            </label>
+
+            <input
+              type="text"
+              placeholder="e.g. Tesco"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+
+
+          {/* Category */}
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Category
+            </label>
+
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option>Food</option>
+              <option>Transport</option>
+              <option>Shopping</option>
+              <option>Bills</option>
+              <option>Entertainment</option>
+              <option>Flights</option>
+              <option>Hotels</option>
+              <option>Rent</option>
+              <option>Salary</option>
+              <option>Tutoring</option>
+              <option>Other</option>
+            </select>
+          </div>
+
+
+          {/* Type */}
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Type
+            </label>
+
+            <select
+              value={type}
+              onChange={(e) =>
+                setType(e.target.value as "income" | "expense")
+              }
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+
+
+          {/* Amount */}
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Amount
+            </label>
+
+            <input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+
+
+          {/* Notes */}
+
+          <div className="md:col-span-5">
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Notes
+            </label>
+
+            <input
+              type="text"
+              placeholder="Optional"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+
+
+          {/* Add Button */}
+
+          <div className="flex items-end">
+            <button
+              type="submit"
+              className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 font-semibold text-white shadow-sm transition hover:bg-indigo-700 hover:shadow-md"
+            >
+              + Add
+            </button>
+          </div>
+
+        </form>
+
+      </div>
+
+
+      {/* Assets & Liabilities */}
+
+      <div className="mb-10 rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+        <div className="border-b border-slate-100 p-6">
+
+          <h2 className="text-xl font-bold text-slate-800">
+            Assets & Liabilities
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-400">
+            Keep track of what you own and what you owe
+          </p>
+
+        </div>
+        
+        
+        
+        {/* Add Asset / Liability */}
+
+        <div className="bg-slate-50 p-6">
+          
           <form
-            onSubmit={addTransaction}
-            className="grid gap-4 md:grid-cols-6"
+            onSubmit={addBalanceItem}
+            className="grid gap-4 md:grid-cols-5"
           >
 
             <div>
-              <label className="mb-1 block text-sm font-medium">
-                Date
-              </label>
-
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-lg border p-2"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-medium">
-                Description
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                Name
               </label>
 
               <input
                 type="text"
-                placeholder="e.g. Tesco"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full rounded-lg border p-2"
+                placeholder="e.g. Savings Account"
+                value={balanceName}
+                onChange={(e) => setBalanceName(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Category
-              </label>
-
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full rounded-lg border p-2"
-              >
-                <option>Food</option>
-                <option>Transport</option>
-                <option>Shopping</option>
-                <option>Bills</option>
-                <option>Entertainment</option>
-                <option>Travel</option>
-                <option>Rent</option>
-                <option>Salary</option>
-                <option>Tutoring</option>
-                <option>Other</option>
-              </select>
-            </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
                 Type
               </label>
 
               <select
-                value={type}
+                value={balanceType}
                 onChange={(e) =>
-                  setType(e.target.value as "income" | "expense")
+                  setBalanceType(
+                    e.target.value as "asset" | "liability"
+                  )
                 }
-                className="w-full rounded-lg border p-2"
+                className="w-full rounded-lg border border-slate-200 bg-white p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               >
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
+                <option value="asset">Asset</option>
+                <option value="liability">Liability</option>
               </select>
             </div>
 
+
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
                 Amount
               </label>
 
@@ -246,32 +602,34 @@ export default function Home() {
                 type="number"
                 step="0.01"
                 placeholder="0.00"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full rounded-lg border p-2"
+                value={balanceAmount}
+                onChange={(e) => setBalanceAmount(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
 
-            <div className="md:col-span-5">
-              <label className="mb-1 block text-sm font-medium">
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
                 Notes
               </label>
 
               <input
                 type="text"
                 placeholder="Optional"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full rounded-lg border p-2"
+                value={balanceNotes}
+                onChange={(e) => setBalanceNotes(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white p-2.5 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
+
 
             <div className="flex items-end">
               <button
                 type="submit"
-                className="w-full rounded-lg bg-black px-4 py-2 font-medium text-white hover:bg-gray-800"
+                className="w-full rounded-lg bg-slate-800 px-4 py-2.5 font-semibold text-white transition hover:bg-slate-900"
               >
-                Add
+                + Add
               </button>
             </div>
 
@@ -279,102 +637,257 @@ export default function Home() {
 
         </div>
 
-        {/* Transactions */}
 
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        {/* Assets / Liabilities Table */}
 
-          <div className="border-b p-6">
-            <h2 className="text-xl font-semibold">
-              Transactions
-            </h2>
+        {balanceItems.length === 0 ? (
+
+          <div className="p-8 text-center text-sm text-slate-400">
+            No assets or liabilities added yet.
           </div>
 
-          {loading ? (
-            <div className="p-6 text-gray-500">
-              Loading...
-            </div>
-          ) : transactions.length === 0 ? (
-            <div className="p-6 text-gray-500">
-              No transactions yet.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+        ) : (
 
-              <table className="w-full text-left">
+          <div className="overflow-x-auto">
 
-                <thead className="bg-gray-50 text-sm text-gray-500">
-                  <tr>
-                    <th className="px-6 py-3">Date</th>
-                    <th className="px-6 py-3">Description</th>
-                    <th className="px-6 py-3">Category</th>
-                    <th className="px-6 py-3">Type</th>
-                    <th className="px-6 py-3 text-right">
-                      Amount
-                    </th>
-                    <th className="px-6 py-3"></th>
-                  </tr>
-                </thead>
+            <table className="w-full text-left">
 
-                <tbody className="divide-y">
+              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-400">
 
-                  {transactions.map((transaction) => (
-                    <tr key={transaction.id}>
+                <tr>
+                  <th className="px-6 py-4">
+                    Name
+                  </th>
 
-                      <td className="px-6 py-4">
-                        {new Date(
-                          transaction.date + "T00:00:00"
-                        ).toLocaleDateString("en-GB")}
-                      </td>
+                  <th className="px-6 py-4">
+                    Type
+                  </th>
 
-                      <td className="px-6 py-4 font-medium">
-                        {transaction.description}
-                      </td>
+                  <th className="px-6 py-4">
+                    Notes
+                  </th>
 
-                      <td className="px-6 py-4 text-gray-500">
-                        {transaction.category}
-                      </td>
+                  <th className="px-6 py-4 text-right">
+                    Amount
+                  </th>
+                </tr>
 
-                      <td className="px-6 py-4 capitalize">
-                        {transaction.type}
-                      </td>
+              </thead>
 
-                      <td
-                        className={`px-6 py-4 text-right font-medium ${
-                          transaction.type === "income"
-                            ? "text-green-600"
-                            : "text-red-600"
+
+              <tbody className="divide-y divide-slate-100">
+
+                {balanceItems.map((item) => (
+
+                  <tr
+                    key={item.id}
+                    className="transition hover:bg-slate-50"
+                  >
+
+                    <td className="px-6 py-4 font-medium text-slate-800">
+                      {item.name}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          item.type === "asset"
+                            ? "bg-sky-100 text-sky-700"
+                            : "bg-amber-100 text-amber-700"
                         }`}
                       >
-                        {transaction.type === "income"
-                          ? "+"
-                          : "-"}
-                        {money(Number(transaction.amount))}
-                      </td>
+                        {item.type}
+                      </span>
+                    </td>
 
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() =>
-                            deleteTransaction(transaction.id)
-                          }
-                          className="text-sm text-gray-400 hover:text-red-600"
-                        >
-                          Delete
-                        </button>
-                      </td>
+                    <td className="max-w-xs px-6 py-4 text-sm text-slate-400">
+                      {item.notes || "—"}
+                    </td>
 
-                    </tr>
-                  ))}
+                    <td className="px-6 py-4 text-right font-semibold text-slate-700">
+                      {money(Number(item.amount))}
+                    </td>
 
-                </tbody>
+                    <td className="px-6 py-4 text-right">
 
-              </table>
+                      <button
+                        onClick={() =>
+                          deleteBalanceItem(item.id)
+                        }
+                        className="text-sm text-slate-400 transition hover:text-rose-600"
+                      >
+                        Delete
+                      </button>
 
-            </div>
-          )}
+                    </td>
+
+                  </tr>
+
+                ))}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        )}
+
+      </div>
+
+
+      {/* Transactions */}
+
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+        <div className="border-b border-slate-100 p-6">
+
+          <h2 className="text-xl font-bold text-slate-800">
+            Transactions
+          </h2>
+
+          <p className="mt-1 text-sm text-slate-400">
+            Your income and expenses
+          </p>
 
         </div>
 
+
+        {loading ? (
+
+          <div className="p-8 text-center text-slate-400">
+            Loading...
+          </div>
+
+        ) : transactions.length === 0 ? (
+
+          <div className="p-8 text-center text-slate-400">
+            No transactions yet.
+          </div>
+
+        ) : (
+
+          <div className="overflow-x-auto">
+
+            <table className="w-full text-left">
+
+              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-400">
+
+                <tr>
+
+                  <th className="px-6 py-4">
+                    Date
+                  </th>
+
+                  <th className="px-6 py-4">
+                    Description
+                  </th>
+
+                  <th className="px-6 py-4">
+                    Category
+                  </th>
+
+                  <th className="px-6 py-4">
+                    Type
+                  </th>
+
+                  <th className="px-6 py-4 text-right">
+                    Amount
+                  </th>
+
+                  <th className="px-6 py-4"></th>
+
+                </tr>
+
+              </thead>
+
+
+              <tbody className="divide-y divide-slate-100">
+
+                {transactions.map((transaction) => (
+
+                  <tr
+                    key={transaction.id}
+                    className="transition hover:bg-slate-50"
+                  >
+
+                    <td className="px-6 py-4 text-sm text-slate-500">
+                      {new Date(
+                        transaction.date + "T00:00:00"
+                      ).toLocaleDateString("en-GB")}
+                    </td>
+
+
+                    <td className="px-6 py-4 font-medium text-slate-800">
+                      {transaction.description}
+                    </td>
+
+
+                    <td className="px-6 py-4">
+
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                        {transaction.category}
+                      </span>
+
+                    </td>
+
+
+                    <td className="px-6 py-4">
+
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          transaction.type === "income"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-rose-100 text-rose-700"
+                        }`}
+                      >
+                        {transaction.type}
+                      </span>
+
+                    </td>
+
+
+                    <td
+                      className={`px-6 py-4 text-right font-semibold ${
+                        transaction.type === "income"
+                          ? "text-emerald-600"
+                          : "text-rose-600"
+                      }`}
+                    >
+                      {transaction.type === "income"
+                        ? "+"
+                        : "-"}
+                      {money(Number(transaction.amount))}
+                    </td>
+
+
+                    <td className="px-6 py-4 text-right">
+
+                      <button
+                        onClick={() =>
+                          deleteTransaction(transaction.id)
+                        }
+                        className="text-sm text-slate-400 transition hover:text-rose-600"
+                      >
+                        Delete
+                      </button>
+
+                    </td>
+
+                  </tr>
+
+                ))}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        )}
+
       </div>
-    </main>
-  );
+
+    </div>
+  </main>
+);
 }
